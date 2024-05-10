@@ -1,10 +1,14 @@
 import fitz
-from mdutils.mdutils import MdUtils
 import re
+import os
+import pickle
+import json
+from mdutils.mdutils import MdUtils
 
 
 class PdfConverter:
     def __init__(self, pdf_path):
+        self.base_path, _ = os.path.splitext(pdf_path)
         with fitz.open(pdf_path) as doc:
             self.metadata = doc.metadata
             self.text_block_pages = self.load_text_block(doc)
@@ -292,6 +296,14 @@ class PdfConverter:
 
         return {"title": title, "contents": contents}
 
+    def write_pkl(self, document, pkl_path):
+        with open(pkl_path, "wb") as f:
+            pickle.dump(document, f)
+
+    def write_json(self, document, json_path):
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(document, f, ensure_ascii=False, indent=4)
+
     def write_md(self, document, md_path):
         title = document["title"]
         contents = document["contents"]
@@ -303,13 +315,22 @@ class PdfConverter:
                 mdFile.new_line(t)
         mdFile.create_md_file()
 
-    def run(self, md_path):
+    def run(self, pkl_path=None, json_path=None, md_path=None):
+        print("Extract PDF: {}".format(self.base_path))
         document = self.construct_document()
+        # # write pkl
+        # pkl_path = self.base_path + ".pkl" if pkl_path is None else pkl_path
+        # self.write_pkl(document, pkl_path)
+        # write json
+        json_path = self.base_path + ".json" if json_path is None else json_path
+        self.write_json(document, json_path)
+        # write markdown
+        md_path = self.base_path + ".md" if md_path is None else md_path
         self.write_md(document, md_path)
 
 
 def main():
-    PdfConverter("./data/pdf/sample.pdf").run("./data/pdf/sample.pdf.md")
+    PdfConverter("./data/pdf/sample.pdf").run()
 
 
 if __name__ == "__main__":
