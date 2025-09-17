@@ -4,12 +4,19 @@ import os
 import pickle
 import json
 from mdutils.mdutils import MdUtils
+from tqdm import tqdm
+from utils import parse_args, Formatter
 
 
 class PdfConverter:
-    def __init__(self, pdf_path):
-        self.base_path, _ = os.path.splitext(pdf_path)
-        with fitz.open(pdf_path) as doc:
+    def __init__(self, pdf_path, format_methods, output_dir=""):
+        # get args
+        self.pdf_path = pdf_path
+        self.format_methods = format_methods
+        self.output_dir = output_dir
+        # Open PDF
+        self.base_path, _ = os.path.splitext(self.pdf_path)
+        with fitz.open(self.pdf_path) as doc:
             self.metadata = doc.metadata
             self.text_block_pages = self.load_text_block(doc)
             self.toc = doc.get_toc(simple=False)
@@ -296,6 +303,23 @@ class PdfConverter:
 
         return {"title": title, "contents": contents}
 
+    def sanitize_filename(self, filename):
+        """
+        Removes characters that cannot be used in filenames from a string.
+
+        Args:
+            filename (str): The string to sanitize.
+
+        Returns:
+            str: A string that is safe to use as a filename.
+        """
+        # Define characters that are invalid in filenames on Windows, macOS, and Linux
+        invalid_chars = r'[\/:*?"<>|]'
+        # Replace invalid characters with an empty string
+        sanitized = re.sub(invalid_chars, "", filename)
+        # Remove leading/trailing whitespace as well
+        return sanitized.strip()
+
     def write_pkl(self, document, pkl_path):
         with open(pkl_path, "wb") as f:
             pickle.dump(document, f)
@@ -317,20 +341,49 @@ class PdfConverter:
 
     def run(self, pkl_path=None, json_path=None, md_path=None):
         print("Extract PDF: {}".format(self.base_path))
+        # extract PDF contents
         document = self.construct_document()
+        # format texts
+        document = Formatter().run(document, methods=self.format_methods)
+        # save
+        save_dir, save_name = os.path.split(self.base_path)
+        if self.output_dir != "":
+            save_dir = self.output_dir
+        title_name = self.sanitize_filename(document["title"])
+        save_name = "{}({})".format(save_name, title_name)
+        save_path = os.path.join(save_dir, save_name)
         # # write pkl
         # pkl_path = self.base_path + ".pkl" if pkl_path is None else pkl_path
         # self.write_pkl(document, pkl_path)
         # write json
-        json_path = self.base_path + ".json" if json_path is None else json_path
+        json_path = save_path + ".json" if json_path is None else json_path
         self.write_json(document, json_path)
         # write markdown
-        md_path = self.base_path + ".md" if md_path is None else md_path
+        md_path = save_path + ".md" if md_path is None else md_path
         self.write_md(document, md_path)
 
 
 def main():
-    PdfConverter("./data/pdf/sample.pdf").run()
+    args = parse_args()
+    pdf_path = args.pdf
+    output_dir = args.output
+    format_methods = args.format
+
+    if os.path.isfile(pdf_path):
+        PdfConverter(pdf_path, format_methods, output_dir=output_dir).run()
+    elif os.path.isdir(pdf_path):
+        # Process all PDF files in the directory
+        print(f"Multiple PDF files detected in '{pdf_path}'.")
+        pdfs = []
+        if os.path.exists(pdf_path) and os.path.isdir(pdf_path):
+            for root, _, files in os.walk(pdf_path):
+                for fname in files:
+                    if os.path.splitext(fname)[1].lower() == ".pdf":
+                        pdfs.append(os.path.join(root, fname))
+        for pdf_path_in_dir in tqdm(pdfs, desc="Processing PDFs"):
+            PdfConverter(pdf_path_in_dir, format_methods, output_dir=output_dir).run()
+    else:
+        print(f"Error: '{pdf_path}' is not a valid file or directory.")
 
 
 if __name__ == "__main__":
